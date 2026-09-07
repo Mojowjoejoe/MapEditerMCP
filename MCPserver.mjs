@@ -6,9 +6,9 @@ import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
 import {z} from 'zod';
 import {listSessions,requestEditor} from './editor-client.mjs';
-import {createMapArchive} from '../../lib/map-package.ts';
+import {createMapArchive} from './lib/map-package.ts';
 
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
+const root=path.dirname(fileURLToPath(import.meta.url));
 const output=path.join(root,'outputs','mcp-exports');
 const sessionId=z.string().regex(/^[a-f0-9]{32}$/),expectedRevision=z.string().min(1);
 const server=new McpServer({name:'wulfram-forge',version:'0.1.0'});

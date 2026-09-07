@@ -1,186 +1,65 @@
 # Wulfram Forge MCP
 
-A local Model Context Protocol (MCP) server for inspecting and editing maps in the Wulfram Forge Windows desktop editor.
+A local MCP server for the Wulfram Forge Windows desktop editor. The server package includes its map serialization modules, dependency lockfile, and native test fixtures. It can start from its own checkout, including the nested `tools/mcp/MapEditerMCP` layout.
 
-An MCP client can work with the currently open, unsaved map: move mirrored structures, shape terrain, capture the editor view, validate placements, export a copy, and undo changes. Edits use the editor's existing undo history and require a current map revision.
+Requirements: Node.js 22.13 or newer, npm, and a compatible MCP-enabled Wulfram Forge Windows editor for live map operations. Building the editor also requires the .NET 9 SDK and WebView2 runtime.
 
-## Features
+## Install and verify
 
-| Tool | Purpose |
-| --- | --- |
-| `list_editor_sessions` | Discover MCP-enabled editor sessions. |
-| `get_editor_state` | Read readiness, map name, revision, selection, and undo/redo counts. |
-| `inspect_map` | Inspect dimensions, entities, and the active base layout. |
-| `validate_map` | Check structure placement, power, slope, and base requirements. |
-| `edit_entities` | Add, move, rotate, or remove structures in one atomic batch, optionally mirrored. |
-| `edit_terrain` | Raise, lower, flatten, smooth, or texture a circular region, optionally mirrored. |
-| `capture_view` | Capture the current editor view and interface as a PNG. |
-| `undo` | Undo the most recent editor change. |
-| `save_copy` | Save the requested revision as a new JSON file. |
-| `export_map` | Export the requested revision as a new map ZIP. |
-
-## Requirements
-
-- Windows with Microsoft Edge WebView2.
-- Node.js 22.13 or newer and npm; tested with Node.js 24.18.
-- .NET 9 SDK to build the desktop editor.
-- An MCP client supporting local STDIO servers, such as Codex.
-- Network access for npm and NuGet dependency installation.
-
-The MCP server depends on shared editor modules. Keep the source tree together; copying only `server.mjs` is insufficient.
-
-## Repository and editor integration
-
-This Git repository contains the MCP server files at its root: server.mjs, MCPserver.mjs, editor-client.mjs, package.json, the dependency lockfile, and the build, launch, and test scripts. It is not a standalone copy of the editor.
-
-To use this repository, place its files directly in tools/mcp inside a compatible Wulfram Forge editor checkout. Do not leave them nested under tools/mcp/MapEditerMCP: the current imports and scripts resolve the editor root two directories above the server files. Alternatively, deliberately update all affected imports and script paths for a different layout.
-
-The editor also needs the native host, React bridge, command module, integration call sites, test files, and assets shown below. These are included in the full developer handoff. Installing only this repository into an older editor does not add those components automatically.
-
-The following tree shows the required integrated layout. The handoff uses a source folder; omit that prefix when the editor checkout itself is your repository root.
-
-```text
-source/
-  tools/mcp/
-    server.mjs            # Stable MCP entry point
-    MCPserver.mjs         # Tool definitions and STDIO server
-    editor-client.mjs     # Native session discovery and pipe client
-    package.json
-    package-lock.json
-    launch-editor.ps1
-    test-desktop.mjs
-  lib/
-    mcp-commands.ts        # Validated entity and terrain operations
-    use-mcp-bridge.ts      # Live React state and undo integration
-  desktop/WulframForge/
-    McpEditorHost.cs       # Native bridge
-    MainForm.cs           # Opt-in bridge startup
-  components/editor/
-    editor-app.tsx         # Editor integration
-  tests/mcp.test.mjs
-  Launch Forge MCP.cmd
-```
-
-Keep both `server.mjs` and `MCPserver.mjs`: the first imports the second. Preserve the capitalization when moving files between platforms.
-
-## Install and build
-
-Open PowerShell in the editor checkout, the directory containing the root `package.json`. For the handoff layout, first run `Set-Location source`.
-
-Run each command only after the previous command succeeds:
+Run from this repository's root:
 
 ```powershell
 npm ci
-npm ci --prefix tools/mcp
-
-node node_modules/typescript/bin/tsc --noEmit
-node --experimental-strip-types --test tests/mcp.test.mjs
-
-node node_modules/vite/bin/vite.js build --config vite.desktop.config.ts
-node tools/create-desktop-assets.mjs
-dotnet publish desktop/WulframForge/WulframForge.csproj --configuration Release --runtime win-x64 --self-contained true --output dist/desktop/mcp-v0.1.0 /p:Version=0.7.0-mcp.1
+npm test
+npm start
 ```
 
-These commands use an installed .NET SDK on `PATH`. The included `build-editor.ps1` convenience script instead expects a checkout-local `.dotnet-sdk/dotnet.exe`.
+`npm start` runs the STDIO server and waits for an MCP client. Configure your client's command as the absolute path to Node, with arguments `--experimental-strip-types` and the absolute path to this repository's `server.mjs`. Both `server.mjs` and `MCPserver.mjs` are required; preserve capitalization.
 
-## Connect to Codex
+`npm test` verifies the MCP handshake and ten tool definitions without connecting to an editor, and checks a ZIP serialization round trip against the included native fixture. It does not establish live editing or gameplay behavior.
 
-From the editor checkout, register the server using absolute paths resolved on your machine:
+## Editor integration
+
+The server is self-contained; the native editor is a separate application. Keep the editor's `McpEditorHost.cs`, `MainForm.cs`, `lib/mcp-commands.ts`, `lib/use-mcp-bridge.ts`, and editor UI integration together in a compatible editor checkout.
+
+For the build, launcher, and native acceptance scripts, set the editor location when it is not an ancestor of this package:
 
 ```powershell
-$forgeNode = (Get-Command node).Source
-$forgeServer = (Resolve-Path tools/mcp/server.mjs).Path
-codex mcp add wulfram-forge -- $forgeNode --experimental-strip-types $forgeServer
-codex mcp get wulfram-forge
+$env:WULFRAM_FORGE_ROOT = 'C:\path\to\wulfram-mapeditor'
 ```
 
-Launch `Launch Forge MCP.cmd`, then open or import a map. Reconnect MCP or restart the client to load the server's tools.
+When this repository is under `tools/mcp/MapEditerMCP`, the scripts find the ancestor editor automatically. An explicitly supplied invalid path fails with an actionable error.
 
-The launcher enables the native bridge and uses a separate persistent editor profile. Registering the MCP server does not launch the editor.
-
-If you move the checkout, register it again using its new absolute path. If the client requires removing the old entry first, run `codex mcp remove wulfram-forge`, then repeat the registration command above.
-
-## Example workflow
-
-1. Call `list_editor_sessions` and select the intended session ID.
-2. Call `inspect_map` to read its entity IDs and current revision.
-3. Submit an edit using that session and revision.
-4. Inspect the result or call `capture_view`.
-5. Use the returned revision for the next edit, export, or undo.
-
-For the included Three Lane Citadel fixture, this moves one base tower and its opposing counterpart:
-
-```json
-{
-  "sessionId": "<session ID from discovery>",
-  "expectedRevision": "<revision from inspection>",
-  "edits": [
-    {
-      "operation": "move",
-      "id": "team-1-base-tower-upper",
-      "x": 1560,
-      "mirror": true
-    }
-  ]
-}
-```
-
-Coordinates are absolute world units; yaw is in radians. Entity IDs are map-specific. Mirroring requires a unique opposing partner.
-
-## Editing behavior
-
-- Each successful edit batch creates one normal undo step.
-- Invalid batches reject without applying partial changes.
-- New project-validation errors block edits; existing errors remain visible.
-- Revisions change after manual edits, MCP edits, and undo. Stale requests reject.
-- After a timeout or disconnect, inspect the map before retrying a write: the change may already have committed.
-- Exports create new files under `outputs/mcp-exports` and never overwrite an existing file. Exporting a copy does not mark the editor saved.
-
-## Architecture
-
-```mermaid
-flowchart LR
-    Client[MCP client] <-->|STDIO| Server[Node MCP server]
-    Server <-->|Windows named pipe| Native[Native editor host]
-    Native <--> Bridge[React editor bridge]
-    Bridge <--> Editor[Live map and undo history]
-```
-
-The native pipe is restricted to the current Windows user and uses a random session credential. Session discovery returns editor information, not credentials. The bridge starts only when `WULFRAM_FORGE_MCP=1` and exposes named editor commands.
-
-## Tests
-
-Run the MCP tests from the editor checkout:
+Install the editor's npm dependencies in its checkout first. Then run these scripts from this repository, checking each succeeds before continuing:
 
 ```powershell
-node --experimental-strip-types --test tests/mcp.test.mjs
+.\build-editor.ps1
+.\launch-editor.ps1
+npm run test:desktop
 ```
 
-After building the MCP-enabled editor, run native acceptance:
+The builder uses the editor's local `.dotnet-sdk/dotnet.exe` when present, otherwise `dotnet` on PATH. It creates `dist/desktop/mcp-v0.1.0/WulframForge.exe` in the editor checkout. The launcher enables the native bridge using a separate persistent profile. Native acceptance uses an isolated profile and the two files in `fixtures/three-lane-citadel/`.
 
-```powershell
-node --experimental-strip-types tools/mcp/test-desktop.mjs
-```
+## Tools and operation
 
-The native test uses an isolated profile and the included Three Lane Citadel fixture under `outputs/three-lane-citadel-v1-final`. It checks discovery, paired editing, stale-revision rejection, screenshots, undo, invalid-placement rejection, terrain editing, and JSON/ZIP export parity.
+The server exposes `list_editor_sessions`, `get_editor_state`, `inspect_map`, `validate_map`, `edit_entities`, `edit_terrain`, `capture_view`, `undo`, `save_copy`, and `export_map`.
 
-The packaged snapshot passed six MCP tests, ten native acceptance steps, and TypeScript checks on the original development machine. Rerun them after integration or changes. Offline validation does not establish in-game behavior.
+Discover and select the intended session, inspect its map, then use its current revision for edits. Entity IDs are map-specific. Successful edit batches use the editor's undo history; invalid or stale requests reject. After a timeout or disconnect, inspect again before retrying a write.
 
-If publishing the handoff as a Git repository, retain the two test-fixture files: `project.json` and `Three-Lane-Citadel-v1.zip` in that fixture directory. The editor's `.gitignore` excludes `outputs/`, so those fixtures need an explicit exception or deliberate inclusion. Do not commit generated MCP exports, test profiles, session descriptors, or credentials.
+The server uses STDIO and a current-user Windows named pipe. The editor bridge must be explicitly enabled. Session credentials are local and are not returned by discovery. Exports are new files under this package's `outputs/mcp-exports/`; existing files are never overwritten. Exporting a copy does not mark the editor saved.
+
+## Included files and exclusions
+
+`lib/` contains the shared serialization source required for ZIP exports; see its README for provenance and update guidance. `fixtures/` contains the JSON project and matching ZIP required by native acceptance. `tests/` contains standalone package checks.
+
+Dependencies, generated builds, exports, session descriptors, profiles, and credentials remain excluded from Git. Run `npm ci` after cloning. Do not add session credentials to this repository.
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| `MODULE_NOT_FOUND` or connection closes during startup | Confirm the registered path exists, both server files are present, and both npm dependency installs completed. |
-| No editor sessions | Start the MCP-enabled editor with the launcher; an ordinary editor launch does not enable the native host. |
-| Stale revision | Inspect again and use the newly returned revision. |
-| Edit rejected for power or placement | Read the reported validation errors and adjust the requested edit. |
-| Export fails with `EEXIST` | Choose a new export name. |
-| Native test cannot find its map | Restore the included fixture at the expected relative path. |
+- Startup import error: restore the complete repository, including `lib/`, and run `npm ci`.
+- No editor sessions: launch a compatible MCP-enabled editor and open a map.
+- Missing editor checkout: set `WULFRAM_FORGE_ROOT` to its directory.
+- Missing native executable: run the editor build script after installing its dependencies and .NET SDK.
+- Stale revision or uncertain write outcome: inspect the current map before retrying.
 
-## Scope
-
-This is a local Windows desktop integration. Browser-editor transport, camera-position controls, and remote hosting are not implemented. Screenshot capture uses the current view. The server does not add game-side minions, tower health, progression, or victory rules.
-
-The handoff includes original editor/game assets needed for reproduction. Their inclusion does not grant additional redistribution rights; retain applicable notices when integrating or publishing.
+This is a Windows desktop integration; starting the server does not launch the editor. Included source and game fixtures retain their existing rights; inclusion does not grant additional redistribution permission.

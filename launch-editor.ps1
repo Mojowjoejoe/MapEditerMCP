@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
-$forgeRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
+. (Join-Path $PSScriptRoot 'resolve-editor-root.ps1')
+$forgeRoot = Resolve-ForgeEditorRoot
 $forgeExe = Join-Path $forgeRoot 'dist/desktop/mcp-v0.1.0/WulframForge.exe'
 if (-not (Test-Path -LiteralPath $forgeExe)) { throw "MCP editor build is missing: $forgeExe" }
 $forgeStart = [Diagnostics.ProcessStartInfo]::new()
